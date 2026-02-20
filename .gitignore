@@ -1,0 +1,22 @@
+# Unreal Engine generated/compiled output
+Binaries/
+Intermediate/
+DerivedDataCache/
+
+# Saved state (logs, crashes, autosaves, screenshots)
+Saved/
+
+# Visual Studio
+.vs/
+*.sln
+*.suo
+*.VC.db
+*.VC.opendb
+.vsconfig
+
+# JetBrains Rider
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

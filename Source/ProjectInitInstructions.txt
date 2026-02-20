@@ -1,0 +1,335 @@
+﻿We have started unreal engine project C++ 
+We don't care about animations, graphics, or UI, we only want to learn the network architecture  
+
+Don't write any code for us. The project should be written in C++.
+
+We want to:
+ - Learn how to create a multiplayer game 
+ - We want to have a client-server architecture where 1 PC has one client plus one dedicated server running,
+   and the second player on the second PC connects to this server as well
+ 
+
+ 
+The end goal:
+ - U
+
+---
+CLAUDE REPLIES
+---
+
+=== Q: What is the first step? ===
+
+Your project already has the third-person character from the UE5 template.
+Here is the logical first step:
+
+--- FIRST STEP: UNDERSTAND UNREAL'S NETWORKING MODEL ---
+
+Before writing any networking code, you need to understand three core concepts
+that everything else builds on.
+
+1. THE SERVER-AUTHORITY MODEL
+
+In Unreal's client-server architecture:
+- The SERVER is the single source of truth. It runs the game simulation authoritatively.
+- CLIENTS send inputs to the server; they never directly change game state.
+- The server processes those inputs and sends state back down to clients.
+
+2. ACTOR ROLES
+
+Every actor on every machine has a Role and RemoteRole. The ones you'll use constantly:
+
+  ROLE_Authority       - This machine owns/simulates this actor (always the server
+                         for replicated actors)
+  ROLE_AutonomousProxy - This is the local player's pawn on their own client
+  ROLE_SimulatedProxy  - This is a remote player's pawn on a client that doesn't own it
+
+You check HasAuthority() constantly to guard server-only logic.
+
+3. REPLICATION AND RPCs
+
+Two mechanisms move data across the network:
+
+- Replicated properties: variables marked UPROPERTY(Replicated).
+  The server owns the value; changes are pushed to clients automatically.
+
+- RPCs (Remote Procedure Calls): functions that execute on a different machine
+  than where they are called:
+    UFUNCTION(Server, Reliable)      - called on client, runs on server
+    UFUNCTION(NetMulticast, Reliable)- called on server, runs on all clients
+    UFUNCTION(Client, Reliable)      - called on server, runs on the owning client
+
+--- YOUR ACTUAL FIRST PRACTICAL STEP ---
+
+Open ConnorJamCharacter.cpp and look at the constructor. Verify (and if missing, add):
+
+    bReplicates = true;
+
+This enables the character to be replicated across the network. ACharacter already
+has CharacterMovementComponent which handles movement replication internally, so
+once this flag is set, position/rotation sync comes nearly for free.
+
+After that, test it: in the Unreal Editor, use PIE (Play In Editor) and set the
+number of players to 2 with "New Editor Window" mode. You will see both characters
+move independently and see each other. That is the baseline you build everything
+on top of.
+
+--- LEARNING RESOURCES ---
+
+- Unreal's own docs: search "Networking Overview" and "Replicating Actor Properties"
+  in the UE documentation.
+- The ACharacter / UCharacterMovementComponent source code in the engine is worth
+  reading -- it is the best example of production-quality Unreal networking.
+
+Once you understand bReplicates, properties, and RPCs, ask about the next step:
+setting up the dedicated server build and connecting a second machine.
+
+=== Q: Does the controller give us client-side prediction? Does it rewind things
+    that are out of sync? ===
+
+SHORT ANSWERS:
+  Client-side prediction:          YES, built in
+  Server reconciliation + replay:  YES, built in
+  Full rewind / lag compensation:  NO, that is a separate system you must build
+
+--- WHAT UCharacterMovementComponent ACTUALLY DOES ---
+
+UCharacterMovementComponent implements a predict-confirm-correct loop:
+
+  1. PREDICT (on the client)
+     When you press a key the client does NOT wait for the server. It immediately
+     simulates the movement locally so input feels instant. This is prediction.
+
+  2. SAVE (on the client)
+     Each frame of input is packaged into an FSavedMove_Character and placed on
+     a pending-moves queue. Each saved move records: timestamp, input vector,
+     flags (jumping, crouching, etc.), and the resulting position.
+
+  3. CONFIRM (on the server)
+     The server receives the saved moves, replays them authoritatively, and sends
+     back an acknowledgement with the server's resulting position/velocity.
+
+  4. CORRECT (on the client, if needed)
+     If the server's position differs from what the client predicted beyond a
+     configurable threshold, the server sends a correction.
+     The client then:
+       a) Snaps to the server's authoritative position.
+       b) Replays ALL pending saved moves that happened AFTER the corrected frame.
+     This replay is the "rewind and re-simulate" you asked about. It is not a
+     full game-state rollback -- only the owning client's movement is replayed.
+
+  5. SMOOTH (for other players, i.e. SimulatedProxy)
+     Other players' characters (ROLE_SimulatedProxy) do NOT get prediction or
+     correction. They receive periodic position snapshots from the server and
+     interpolate between them. This is why remote players look slightly delayed
+     or can appear to stutter on high-latency connections.
+
+--- WHAT IT DOES NOT DO ---
+
+  Lag compensation (hit-scan rewind):
+    When you fire a weapon on a client, the server does NOT rewind all other
+    actors to the point in time when the client fired. This means at high latency
+    you can shoot where a player WAS, not where the server thinks they are now.
+    Shooters (Fortnite, Valorant, etc.) implement a separate lag-compensation
+    system on top of the base movement. Unreal does not give you this for free.
+
+  Rollback netcode (GGPO-style):
+    This is common in fighting games. It runs the full game simulation on both
+    peers, rollbacks and replays full game state when inputs diverge. Unreal's
+    model does not do this. It is server-authoritative, not peer-to-peer rollback.
+
+--- PRACTICAL IMPLICATION FOR YOUR PROJECT ---
+
+For a third-person movement game, UCharacterMovementComponent is essentially
+ready to use. Movement will feel responsive on the local client and will correct
+itself if it drifts from the server. You do not need to write any prediction code
+for movement.
+
+Where you WILL need to think carefully about prediction vs. authority:
+  - Custom abilities (dash, double jump, etc.) that bypass the movement component
+  - Any gameplay state that is NOT just position (health, ammo, score)
+  - Weapon firing / hit detection if you add combat
+
+For those, you will write Server RPCs (input goes up to server), the server
+updates the authoritative state, and Replicated properties push the result
+back down to all clients.
+
+=== Q: What do we do in the Unreal Editor now? ===
+
+Good news: bReplicates = true is already set in ConnorJamCharacter.cpp (line 52).
+You do not need to change any code. Go straight to testing.
+
+--- STEPS IN THE EDITOR ---
+
+1. OPEN MULTIPLAYER PIE SETTINGS
+   At the top toolbar, find the three dots (...) next to the Play button,
+   or go to:  Edit > Editor Preferences > Play In Editor
+
+   You need to set:
+     Number of Players:  2
+     Net Mode:           Play As Listen Server
+                         (this makes the first window the server + a client,
+                          and the second window a pure client -- close to your
+                          eventual dedicated server setup)
+
+2. HIT PLAY
+   Two windows will open. Each window controls one player.
+   Click into a window to give it focus, then use WASD to move that player.
+
+3. WHAT TO OBSERVE
+   - Both characters appear in both windows.
+   - Moving player 1 in window 1 -- you should see that character move in window 2.
+   - Moving player 2 in window 2 -- you should see that character move in window 1.
+   - This is replication working. You wrote zero networking code for this.
+     UCharacterMovementComponent did it all.
+
+4. THINGS TO LOOK FOR THAT TELL YOU REPLICATION IS REAL
+   - Open the console in a client window (tilde key ~) and type:
+       showdebug net
+     This displays what is being replicated each frame.
+   - You can also type:
+       stat net
+     To see bandwidth and packet stats.
+
+--- WHAT "LISTEN SERVER" VS "DEDICATED SERVER" MEANS HERE ---
+
+  Listen Server:  One of the player windows IS the server. That machine runs
+                  both the server simulation and a client. This is what PIE gives
+                  you easily and is fine for testing replication logic.
+
+  Dedicated Server: A separate headless process runs the server with no player
+                    attached. This is your eventual goal (one PC runs a dedicated
+                    server + one client, second PC connects).
+
+The replication behavior you see in PIE with a listen server is identical to
+what you will see with a dedicated server. Get comfortable with PIE first.
+
+--- NEXT AFTER YOU VERIFY IT WORKS ---
+
+Once you see both characters in both windows and movement syncs, the next
+topic is: adding your own replicated variable. A simple health float is the
+classic first exercise. Ask about that when ready.
+
+=== Q: How do we package so my friend on another PC can connect to a dedicated
+    server running on my PC, while I also play on my PC as a client? ===
+
+This is the exact architecture described at the top of this file. Here is
+every step in order.
+
+--- PHASE 1: CREATE THE DEDICATED SERVER TARGET FILE ---
+
+Unreal needs a Server target to know how to build a headless server binary.
+You already have:
+  Source/ConnorJam.Target.cs       (Type = Game)
+  Source/ConnorJamEditor.Target.cs (Type = Editor)
+
+You need to CREATE a new file:
+  Source/ConnorJamServer.Target.cs (Type = Server)
+
+Copy ConnorJam.Target.cs exactly, then make two changes:
+  - Class name:  ConnorJamServerTarget
+  - Type:        TargetType.Server
+
+It will look like this:
+
+    using UnrealBuildTool;
+    using System.Collections.Generic;
+
+    public class ConnorJamServerTarget : TargetRules
+    {
+        public ConnorJamServerTarget(TargetInfo Target) : base(Target)
+        {
+            Type = TargetType.Server;
+            DefaultBuildSettings = BuildSettingsVersion.V6;
+            IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_7;
+            ExtraModuleNames.Add("ConnorJam");
+        }
+    }
+
+After saving that file, right-click ConnorJam.uproject > Generate Visual Studio
+project files. You should now see ConnorJamServer as a build target in VS.
+
+--- PHASE 2: PACKAGE THE DEDICATED SERVER ---
+
+Option A - Command line (most reliable):
+  Find your UE5 install, then run (adjust paths for your machine):
+
+  "C:\Program Files\Epic Games\UE_5.7\Engine\Build\BatchFiles\RunUAT.bat"
+    BuildCookRun
+    -project="C:\...\ConnorJam\ConnorJam.uproject"
+    -target=ConnorJamServer
+    -platform=Win64
+    -configuration=Development
+    -cook -build -stage -pak -archive
+    -archivedirectory="C:\...\ConnorJam\PackagedServer"
+    -server -noclient
+
+Option B - Inside the Editor:
+  Platforms (toolbar) > Windows > Package Project
+  Before clicking, make sure the active target is set to Server.
+  (The editor may show a dropdown for Game vs Server depending on UE version.)
+
+The result is a folder (PackagedServer) containing ConnorJamServer.exe.
+
+--- PHASE 3: PACKAGE THE CLIENT ---
+
+Same RunUAT command but without -server -noclient:
+
+  "C:\Program Files\Epic Games\UE_5.7\Engine\Build\BatchFiles\RunUAT.bat"
+    BuildCookRun
+    -project="C:\...\ConnorJam\ConnorJam.uproject"
+    -platform=Win64
+    -configuration=Development
+    -cook -build -stage -pak -archive
+    -archivedirectory="C:\...\ConnorJam\PackagedClient"
+
+The result is PackagedClient\Windows\ConnorJam.exe.
+Give this exe (and the whole folder) to your friend.
+
+--- PHASE 4: RUN ON YOUR PC (HOST) ---
+
+1. Start the dedicated server first:
+     ConnorJamServer.exe /Game/ThirdPerson/Maps/ThirdPersonMap?listen -log -port=7777
+
+   Replace the map path with whatever map you are using.
+   -log opens a console window so you can see server output.
+   -port=7777 is the default; you can omit it if you want 7777.
+
+2. Start your own client:
+     ConnorJam.exe 127.0.0.1 -port=7777
+
+   127.0.0.1 means "connect to localhost", i.e. the server running on your
+   own machine.
+
+--- PHASE 5: YOUR FRIEND CONNECTS ---
+
+Your friend runs:
+     ConnorJam.exe <YOUR_PUBLIC_IP> -port=7777
+
+Your public IP: go to https://whatismyip.com or google "what is my ip".
+
+--- PHASE 6: FIREWALL AND ROUTER (CRITICAL) ---
+
+Your PC's Windows Firewall will block incoming connections by default.
+
+  Windows Defender Firewall > Advanced Settings
+  > Inbound Rules > New Rule
+  > Port > UDP > 7777 > Allow the connection
+
+If you are behind a home router (almost everyone is):
+  Log into your router admin page (usually 192.168.1.1 or 192.168.0.1)
+  Find "Port Forwarding"
+  Forward UDP port 7777 to your PC's LOCAL IP address
+  (Find your local IP with: ipconfig in cmd -- look for IPv4 Address)
+
+Without port forwarding your friend's connection will be blocked at the router.
+
+--- SUMMARY OF WHAT RUNS WHERE ---
+
+  YOUR PC:
+    ConnorJamServer.exe   <-- dedicated server, no graphics, just simulation
+    ConnorJam.exe         <-- your client, connects to 127.0.0.1
+
+  FRIEND'S PC:
+    ConnorJam.exe         <-- their client, connects to your public IP
+
+This is the exact setup described at the top of this file.
