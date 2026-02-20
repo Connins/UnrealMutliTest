@@ -3,15 +3,20 @@
 
 #include "BallWithPhysics.h"
 
+#include "Misc/MapErrors.h"
+
 // Sets default values
 ABallWithPhysics::ABallWithPhysics()
 {
  	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
 	PrimaryActorTick.bCanEverTick = true;
 	bReplicates = true;
+
 	SetReplicateMovement(true);
 
+	
 	StaticMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("StaticMesh"));
+	RootComponent = StaticMesh;
 	
 	StaticMesh->SetIsReplicated(true);
 	StaticMesh->SetSimulatePhysics(false);
@@ -31,6 +36,6 @@ void ABallWithPhysics::BeginPlay()
 void ABallWithPhysics::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
-
+	
 }
 
