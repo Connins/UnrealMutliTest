@@ -1,0 +1,1 @@
+﻿& "C:\Program Files\Epic Games\UE_5.7\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun -project="C:\Users\Fred2025\Documents\Unreal Projects\ConnorJam\ConnorJam.uproject" -target=ConnorJamServer -platform=Win64 -configuration=Development -cook -build -stage -pak -archive -archivedirectory="C:\Users\Fred2025\Desktop\PackagedServer" -server -noclient
