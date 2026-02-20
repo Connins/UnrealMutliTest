@@ -525,6 +525,94 @@ When you are ready to add a proper "join game" flow in C++, the call is:
 But you do NOT need this now. The console command and command line arg
 do exactly the same thing under the hood.
 
+=== Q: Physics ball is choppy on the client. How do we smooth it? ===
+
+WHY IT IS CHOPPY:
+
+The server runs physics simulation and sends position/rotation snapshots to
+clients at a fixed rate (NetUpdateFrequency, default ~10Hz for non-character
+actors). The client receives a snapshot, snaps to it, waits... receives another,
+snaps again. That snapping IS the choppiness. There is no interpolation between
+snapshots by default for generic actors.
+
+WHAT YOUR BALL ACTOR NEEDS IN C++:
+
+Your ball class needs these properties set in its constructor:
+
+  bReplicates = true;
+  bReplicateMovement = true;
+  NetUpdateFrequency = 60.0f;
+  MinNetUpdateFrequency = 30.0f;
+
+bReplicateMovement = true tells UE to replicate the FRepMovement struct, which
+contains:
+  - Location
+  - Rotation
+  - LinearVelocity
+  - AngularVelocity
+
+Sending velocity alongside position is important because it lets the client
+know which way the ball is heading, which enables extrapolation.
+
+HOW TO ACTUALLY SMOOTH IT -- CLIENT-SIDE INTERPOLATION:
+
+Increasing NetUpdateFrequency alone reduces choppiness but wastes bandwidth.
+The proper solution is to interpolate on the client between received snapshots.
+
+The pattern to implement in your ball actor:
+
+  SERVER:
+    Physics simulation runs normally. Nothing special to do here.
+
+  CLIENT (in Tick, but only when !HasAuthority()):
+    Instead of snapping to the replicated position, store the last received
+    position as a TARGET and each frame Lerp or move toward it smoothly.
+
+    The key override is OnRep_ReplicatedMovement() -- this fires on the client
+    every time a new snapshot arrives from the server. Instead of immediately
+    applying the position, store it as your interpolation target.
+
+    Then in Tick(), move the mesh toward that target using FMath::VInterpTo()
+    or FMath::Lerp() with a speed that covers the distance within one network
+    update interval (~1/60s if NetUpdateFrequency is 60).
+
+COMPONENT PHYSICS ON CLIENT:
+
+On the client, the mesh component should NOT be simulating physics -- the
+server owns the physics truth. Set the physics simulation to only run on the
+server:
+
+  if (HasAuthority())
+  {
+      GetMeshComponent()->SetSimulatePhysics(true);
+  }
+
+On the client the mesh is kinematic (no physics), and you drive its position
+purely from the replicated + interpolated data.
+
+BUILT-IN ALTERNATIVE -- UNetworkPhysicsComponent (UE 5.3+):
+
+UE 5.7 ships with UNetworkPhysicsComponent which handles physics prediction
+and reconciliation automatically. This is the "proper" modern approach but
+requires more setup. Search "Network Physics Component" in the UE docs.
+For a learning project, implementing manual interpolation first is more
+educational since you see exactly what is happening.
+
+SUMMARY OF WHAT TO WRITE:
+
+  1. In ball constructor:
+       bReplicates = true
+       bReplicateMovement = true
+       NetUpdateFrequency = 60.0f
+
+  2. Only enable SetSimulatePhysics(true) on the server (HasAuthority())
+
+  3. Override OnRep_ReplicatedMovement() -- mark it UFUNCTION(BlueprintCallable)
+     Store the incoming position/rotation as an interpolation target
+
+  4. In Tick(), on the client only (!HasAuthority()), use FMath::VInterpTo()
+     to smoothly move the mesh toward the stored target
+
 === Q: Can I host from the editor using Play As Listen Server? ===
 
 YES. The editor can act as a real listen server that your friend connects to

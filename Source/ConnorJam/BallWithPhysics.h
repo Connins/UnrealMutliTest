@@ -24,4 +24,12 @@ public:
 	virtual void Tick(float DeltaTime) override;
 	UPROPERTY(EditAnywhere)
 	UStaticMeshComponent* StaticMesh;
+
+	UPROPERTY()
+	FVector TargetLocation;
+
+	UPROPERTY()
+	FRotator TargetRotation;
+	
+	virtual void OnRep_ReplicatedMovement() override;
 };
