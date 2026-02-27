@@ -2,7 +2,6 @@
 
 
 #include "BallWithPhysics.h"
-
 #include "Misc/MapErrors.h"
 
 // Sets default values
@@ -17,19 +16,15 @@ ABallWithPhysics::ABallWithPhysics()
 	
 	StaticMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("StaticMesh"));
 	RootComponent = StaticMesh;
-	
 	StaticMesh->SetIsReplicated(true);
-	StaticMesh->SetSimulatePhysics(false);
+	SetPhysicsReplicationMode(EPhysicsReplicationMode::PredictiveInterpolation);
 }
 
 // Called when the game starts or when spawned
 void ABallWithPhysics::BeginPlay()
 {
 	Super::BeginPlay();
-	if (HasAuthority())
-	{
-		StaticMesh->SetSimulatePhysics(true);
-	}
+	StaticMesh->SetSimulatePhysics(true);
 }
 
 // Called every frame
