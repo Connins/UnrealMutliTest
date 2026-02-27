@@ -14,6 +14,9 @@ ABallWithPhysics::ABallWithPhysics()
 	SetReplicatingMovement(true);
 	StaticMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("StaticMesh"));
 	RootComponent = StaticMesh;
+
+	StaticMesh->SetIsReplicated(true);
+	StaticMesh->SetSimulatePhysics(false);
 }
 
 // Called when the game starts or when spawned
