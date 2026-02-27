@@ -17,6 +17,7 @@ ABallWithPhysics::ABallWithPhysics()
 	StaticMesh = CreateDefaultSubobject<UStaticMeshComponent>(TEXT("StaticMesh"));
 	RootComponent = StaticMesh;
 	StaticMesh->SetIsReplicated(true);
+	StaticMesh->bReplicatePhysicsToAutonomousProxy = true;
 	SetPhysicsReplicationMode(EPhysicsReplicationMode::PredictiveInterpolation);
 }
 
